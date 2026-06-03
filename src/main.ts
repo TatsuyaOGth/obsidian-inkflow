@@ -120,6 +120,19 @@ export default class InkflowPlugin extends Plugin {
 		return view instanceof InkflowSuggestionView ? view : null;
 	}
 
+	// Finds the editor to act on. Clicking a button in the side panel makes the
+	// panel the active leaf, so getActiveViewOfType returns null; fall back to
+	// the most recently used main-area leaf (the note the user was editing).
+	private getTargetMarkdownView(): MarkdownView | null {
+		const active = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (active) {
+			return active;
+		}
+		const leaf = this.app.workspace.getMostRecentLeaf();
+		const view = leaf?.view;
+		return view instanceof MarkdownView ? view : null;
+	}
+
 	private renderPanel(state: PanelState): void {
 		this.getView()?.render(state);
 	}
@@ -149,7 +162,7 @@ export default class InkflowPlugin extends Plugin {
 	}
 
 	private async runSuggestion(generation: number): Promise<void> {
-		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const view = this.getTargetMarkdownView();
 		const editor = view?.editor;
 		if (!editor) {
 			return;
@@ -188,12 +201,23 @@ export default class InkflowPlugin extends Plugin {
 	}
 
 	private insertSuggestion(text: string): void {
-		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const view = this.getTargetMarkdownView();
 		const editor = view?.editor;
 		if (!editor) {
 			new Notice('挿入先のエディターが見つかりません。');
 			return;
 		}
-		editor.replaceRange(text, editor.getCursor());
+		const cursor = editor.getCursor();
+		editor.replaceRange(text, cursor);
+		// Move the cursor to the end of the inserted text and refocus the editor
+		// so the user can keep writing or insert again.
+		const lines = text.split('\n');
+		const lastLine = lines[lines.length - 1] ?? '';
+		const endCursor =
+			lines.length === 1
+				? { line: cursor.line, ch: cursor.ch + text.length }
+				: { line: cursor.line + lines.length - 1, ch: lastLine.length };
+		editor.setCursor(endCursor);
+		editor.focus();
 	}
 }
