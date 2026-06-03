@@ -1,4 +1,7 @@
 import { MarkdownView, Notice, Plugin } from 'obsidian';
+import { ContextCollector } from './ContextCollector';
+import { IdleDetector } from './IdleDetector';
+import { InkflowError, OllamaClient } from './OllamaClient';
 import { InkflowSettingTab } from './SettingsTab';
 import { InkflowSuggestionView } from './SuggestionPanel';
 import {
@@ -8,11 +11,35 @@ import {
 	VIEW_TYPE_INKFLOW,
 } from './types';
 
+const ERROR_MESSAGES: Record<InkflowError['kind'], string> = {
+	connection: 'Ollamaに接続できません。起動しているか確認してください。',
+	parse: 'レスポンスのパースに失敗しました。',
+	timeout: 'リクエストがタイムアウトしました。',
+};
+
 export default class InkflowPlugin extends Plugin {
 	settings!: InkflowSettings;
 
+	private ollamaClient!: OllamaClient;
+	private contextCollector!: ContextCollector;
+	private idleDetector!: IdleDetector;
+	private requestGeneration = 0;
+
 	async onload() {
 		await this.loadSettings();
+
+		this.ollamaClient = new OllamaClient(() => this.settings);
+		this.contextCollector = new ContextCollector(
+			this.app,
+			() => this.settings,
+		);
+		this.idleDetector = new IdleDetector(
+			this.settings.idleSeconds * 1000,
+			() => this.onIdle(),
+		);
+		if (this.settings.enabled) {
+			this.idleDetector.start();
+		}
 
 		this.registerView(
 			VIEW_TYPE_INKFLOW,
@@ -37,10 +64,21 @@ export default class InkflowPlugin extends Plugin {
 			},
 		});
 
+		this.registerEvent(
+			this.app.workspace.on('editor-change', () => {
+				// Resuming typing cancels any in-flight request (spec §1): bump
+				// the generation so a pending response is discarded on arrival.
+				this.requestGeneration++;
+				this.idleDetector.notifyActivity();
+			}),
+		);
+
 		this.addSettingTab(new InkflowSettingTab(this.app, this));
 	}
 
-	onunload() {}
+	onunload() {
+		this.idleDetector?.stop();
+	}
 
 	async loadSettings() {
 		this.settings = Object.assign(
@@ -55,8 +93,9 @@ export default class InkflowPlugin extends Plugin {
 	}
 
 	// Re-applies the idle interval when the idleSeconds setting changes.
-	// Wired up to the IdleDetector in a later step.
-	applyIdleSeconds() {}
+	applyIdleSeconds() {
+		this.idleDetector?.setIdleMs(this.settings.idleSeconds * 1000);
+	}
 
 	async activateView(): Promise<void> {
 		const { workspace } = this.app;
@@ -89,6 +128,61 @@ export default class InkflowPlugin extends Plugin {
 		this.settings.enabled = enabled;
 		void this.saveSettings();
 		this.getView()?.setEnabled(enabled);
+		if (enabled) {
+			this.idleDetector.start();
+		} else {
+			this.idleDetector.stop();
+		}
+	}
+
+	private onIdle(): void {
+		if (!this.settings.enabled) {
+			return;
+		}
+		void this.runSuggestion(++this.requestGeneration);
+	}
+
+	private regenerate(): void {
+		void this.runSuggestion(++this.requestGeneration);
+	}
+
+	private async runSuggestion(generation: number): Promise<void> {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const editor = view?.editor;
+		if (!editor) {
+			return;
+		}
+
+		const { prefix, frontmatter } = this.contextCollector.collect(
+			editor,
+			view.file,
+		);
+		this.renderPanel({ status: 'loading' });
+
+		try {
+			const suggestions = await this.ollamaClient.fetchSuggestions(
+				prefix,
+				frontmatter,
+			);
+			if (generation === this.requestGeneration) {
+				this.renderPanel({ status: 'done', suggestions });
+			}
+		} catch (error) {
+			if (generation !== this.requestGeneration) {
+				return;
+			}
+			this.renderPanel({
+				status: 'error',
+				error: this.toErrorMessage(error),
+			});
+		}
+	}
+
+	private toErrorMessage(error: unknown): string {
+		if (error instanceof InkflowError) {
+			return ERROR_MESSAGES[error.kind];
+		}
+		return 'エラーが発生しました。';
 	}
 
 	private insertSuggestion(text: string): void {
@@ -99,10 +193,5 @@ export default class InkflowPlugin extends Plugin {
 			return;
 		}
 		editor.replaceRange(text, editor.getCursor());
-	}
-
-	// Fully implemented in a later step once the request pipeline exists.
-	private regenerate(): void {
-		this.renderPanel({ status: 'loading' });
 	}
 }
