@@ -2,7 +2,7 @@
 	"id": "inkflow",
 	"name": "Inkflow",
 	"version": "1.0.0",
-	"minAppVersion": "1.0.0",
+	"minAppVersion": "1.7.2",
 	"description": "Suggests continuations of your writing using a local LLM (Ollama).",
 	"author": "TatsuyaOGth",
 	"authorUrl": "https://github.com/TatsuyaOGth",
