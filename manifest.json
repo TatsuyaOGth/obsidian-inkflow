@@ -1,11 +1,10 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
+	"id": "inkflow",
+	"name": "Inkflow",
 	"version": "1.0.0",
 	"minAppVersion": "1.0.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"description": "Suggests continuations of your writing using a local LLM (Ollama).",
+	"author": "TatsuyaOGth",
+	"authorUrl": "https://github.com/TatsuyaOGth",
 	"isDesktopOnly": false
 }
