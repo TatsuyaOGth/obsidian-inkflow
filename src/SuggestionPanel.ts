@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf } from 'obsidian';
+import { ItemView, ToggleComponent, WorkspaceLeaf } from 'obsidian';
 import { PanelState, VIEW_TYPE_INKFLOW } from './types';
 
 export interface SuggestionPanelCallbacks {
@@ -11,7 +11,7 @@ export interface SuggestionPanelCallbacks {
 export class InkflowSuggestionView extends ItemView {
 	private callbacks: SuggestionPanelCallbacks;
 	private bodyEl!: HTMLElement;
-	private toggleEl!: HTMLInputElement;
+	private toggle!: ToggleComponent;
 	private regenerateButton!: HTMLButtonElement;
 	private state: PanelState = { status: 'idle' };
 
@@ -42,17 +42,10 @@ export class InkflowSuggestionView extends ItemView {
 			text: 'Writing suggest',
 			cls: 'inkflow-title',
 		});
-		const toggleLabel = header.createEl('label', {
-			cls: 'inkflow-toggle',
-		});
-		this.toggleEl = toggleLabel.createEl('input', {
-			type: 'checkbox',
-		});
-		this.toggleEl.checked = this.callbacks.getEnabled();
-		this.toggleEl.addEventListener('change', () => {
-			this.callbacks.onToggle(this.toggleEl.checked);
-		});
-		toggleLabel.createSpan({ text: 'ON / OFF' });
+		const toggleWrapper = header.createDiv({ cls: 'inkflow-toggle' });
+		this.toggle = new ToggleComponent(toggleWrapper);
+		this.toggle.setValue(this.callbacks.getEnabled());
+		this.toggle.onChange((value) => this.callbacks.onToggle(value));
 
 		this.bodyEl = container.createDiv({ cls: 'inkflow-body' });
 
@@ -73,9 +66,8 @@ export class InkflowSuggestionView extends ItemView {
 	}
 
 	setEnabled(enabled: boolean): void {
-		if (this.toggleEl) {
-			this.toggleEl.checked = enabled;
-		}
+		// setValue does not fire onChange, so this won't loop back into onToggle.
+		this.toggle?.setValue(enabled);
 	}
 
 	render(state: PanelState): void {

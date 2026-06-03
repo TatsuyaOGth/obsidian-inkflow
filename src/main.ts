@@ -136,7 +136,9 @@ export default class InkflowPlugin extends Plugin {
 	}
 
 	private onIdle(): void {
-		if (!this.settings.enabled) {
+		// Only auto-generate when enabled and the panel is open, so we never
+		// issue background Ollama requests the user can't see.
+		if (!this.settings.enabled || !this.getView()) {
 			return;
 		}
 		void this.runSuggestion(++this.requestGeneration);
