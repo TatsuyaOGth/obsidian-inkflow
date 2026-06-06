@@ -18,6 +18,7 @@ export default class InkflowPlugin extends Plugin {
 	private contextCollector!: ContextCollector;
 	private generationTimer: number | null = null;
 	private requestGeneration = 0;
+	private isLoopActive = false;
 
 	async onload() {
 		await this.loadSettings();
@@ -49,6 +50,16 @@ export default class InkflowPlugin extends Plugin {
 		});
 
 		this.addSettingTab(new InkflowSettingTab(this.app, this));
+
+		// Restart the loop whenever the workspace layout changes (covers the case
+		// where Obsidian restores the panel leaf from a previous session on startup).
+		this.registerEvent(
+			this.app.workspace.on('layout-change', () => {
+				if (this.settings.enabled && !this.isLoopActive && this.getView()) {
+					this.startGenerationLoop();
+				}
+			}),
+		);
 
 		if (this.settings.enabled) {
 			this.startGenerationLoop();
@@ -83,6 +94,10 @@ export default class InkflowPlugin extends Plugin {
 			await leaf.setViewState({ type: VIEW_TYPE_INKFLOW, active: true });
 		}
 		await workspace.revealLeaf(leaf);
+		// Restart loop if enabled and the loop had stopped (e.g. panel was closed).
+		if (this.settings.enabled && !this.isLoopActive) {
+			this.startGenerationLoop();
+		}
 	}
 
 	private getView(): InkflowSuggestionView | null {
@@ -105,11 +120,13 @@ export default class InkflowPlugin extends Plugin {
 	}
 
 	private setEnabled(enabled: boolean): void {
+		if (this.settings.enabled === enabled) return;
 		this.settings.enabled = enabled;
 		void this.saveSettings();
-		this.getView()?.setEnabled(enabled);
+		const view = this.getView();
+		view?.setEnabled(enabled);
 		if (enabled) {
-			this.getView()?.clearEntries();
+			view?.clearEntries();
 			this.startGenerationLoop();
 		} else {
 			this.stopGeneration();
@@ -117,10 +134,13 @@ export default class InkflowPlugin extends Plugin {
 	}
 
 	private startGenerationLoop(): void {
+		if (this.isLoopActive) return;
+		this.isLoopActive = true;
 		void this.generationCycle(++this.requestGeneration);
 	}
 
 	private stopGeneration(): void {
+		this.isLoopActive = false;
 		if (this.generationTimer !== null) {
 			window.clearTimeout(this.generationTimer);
 			this.generationTimer = null;
@@ -129,14 +149,25 @@ export default class InkflowPlugin extends Plugin {
 	}
 
 	private async generationCycle(generation: number): Promise<void> {
-		if (!this.settings.enabled) return;
+		if (!this.settings.enabled || !this.isLoopActive) return;
 
 		const view = this.getView();
-		if (!view) return;
+		if (!view) {
+			// Panel was closed; stop and let activateView/layout-change restart.
+			this.isLoopActive = false;
+			return;
+		}
 
 		const markdownView = this.getTargetMarkdownView();
 		const editor = markdownView?.editor;
-		if (!editor) return;
+		if (!editor) {
+			// No editor open; retry after interval without appending a loading entry.
+			this.generationTimer = window.setTimeout(() => {
+				this.generationTimer = null;
+				void this.generationCycle(generation);
+			}, this.settings.intervalSeconds * 1000);
+			return;
+		}
 
 		const entryId = view.appendLoading(this.settings.maxEntries);
 
@@ -149,16 +180,23 @@ export default class InkflowPlugin extends Plugin {
 				prefix,
 				frontmatter,
 			);
-			if (generation !== this.requestGeneration) return;
+			if (generation !== this.requestGeneration) {
+				view.removeEntry(entryId);
+				return;
+			}
 			view.resolveEntry(entryId, { suggestions });
 		} catch (error) {
-			if (generation !== this.requestGeneration) return;
+			if (generation !== this.requestGeneration) {
+				view.removeEntry(entryId);
+				return;
+			}
 			view.resolveEntry(entryId, { error: this.toErrorMessage(error) });
 			// Stop the loop on error; user must toggle off/on to retry.
+			this.isLoopActive = false;
 			return;
 		}
 
-		if (generation !== this.requestGeneration || !this.settings.enabled) return;
+		if (generation !== this.requestGeneration || !this.settings.enabled || !this.isLoopActive) return;
 
 		this.generationTimer = window.setTimeout(() => {
 			this.generationTimer = null;

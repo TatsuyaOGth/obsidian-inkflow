@@ -126,6 +126,20 @@ export class InkflowSuggestionView extends ItemView {
 		}
 	}
 
+	/** Removes a single entry (e.g. a stale loading entry cancelled mid-flight). */
+	removeEntry(id: number): void {
+		const idx = this.entries.findIndex((e) => e.id === id);
+		if (idx !== -1) this.entries.splice(idx, 1);
+		const el = this.entryEls.get(id);
+		if (el) {
+			el.remove();
+			this.entryEls.delete(id);
+			if (this.entries.length === 0) {
+				this.showEmptyState();
+			}
+		}
+	}
+
 	/** Clears all entries (called when re-enabling the plugin). */
 	clearEntries(): void {
 		this.entries = [];
