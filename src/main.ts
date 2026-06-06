@@ -191,7 +191,7 @@ export default class InkflowPlugin extends Plugin {
 				return;
 			}
 			view.resolveEntry(entryId, { error: this.toErrorMessage(error) });
-			// Stop the loop on error; user must toggle off/on to retry.
+			// Stop the loop on error; it will auto-restart on the next layout-change event.
 			this.isLoopActive = false;
 			return;
 		}
