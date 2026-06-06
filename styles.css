@@ -26,9 +26,23 @@
 	cursor: pointer;
 }
 
+.inkflow-body-wrapper {
+	flex: 1;
+	position: relative;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+}
+
 .inkflow-body {
 	flex: 1;
 	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+}
+
+.inkflow-entry {
 	display: flex;
 	flex-direction: column;
 	gap: var(--size-4-2);
@@ -56,9 +70,19 @@
 	align-self: flex-end;
 }
 
-.inkflow-footer {
-	display: flex;
-	justify-content: center;
+.inkflow-scroll-to-latest {
+	display: none;
+	position: absolute;
+	bottom: var(--size-4-3);
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 10;
+	white-space: nowrap;
+	box-shadow: var(--shadow-s);
+}
+
+.inkflow-scroll-to-latest.is-visible {
+	display: block;
 }
 
 .inkflow-error {

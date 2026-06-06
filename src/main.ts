@@ -1,15 +1,9 @@
 import { MarkdownView, Notice, Plugin } from 'obsidian';
 import { ContextCollector } from './ContextCollector';
-import { IdleDetector } from './IdleDetector';
 import { InkflowError, OllamaClient } from './OllamaClient';
 import { InkflowSettingTab } from './SettingsTab';
 import { InkflowSuggestionView } from './SuggestionPanel';
-import {
-	DEFAULT_SETTINGS,
-	InkflowSettings,
-	PanelState,
-	VIEW_TYPE_INKFLOW,
-} from './types';
+import { DEFAULT_SETTINGS, InkflowSettings, VIEW_TYPE_INKFLOW } from './types';
 
 const ERROR_MESSAGES: Record<InkflowError['kind'], string> = {
 	connection: 'Ollamaに接続できません。起動しているか確認してください。',
@@ -22,33 +16,23 @@ export default class InkflowPlugin extends Plugin {
 
 	private ollamaClient!: OllamaClient;
 	private contextCollector!: ContextCollector;
-	private idleDetector!: IdleDetector;
+	private generationTimer: number | null = null;
 	private requestGeneration = 0;
 
 	async onload() {
 		await this.loadSettings();
 
 		this.ollamaClient = new OllamaClient(() => this.settings);
-		this.contextCollector = new ContextCollector(
-			this.app,
-			() => this.settings,
-		);
-		this.idleDetector = new IdleDetector(
-			this.settings.idleSeconds * 1000,
-			() => this.onIdle(),
-		);
-		if (this.settings.enabled) {
-			this.idleDetector.start();
-		}
+		this.contextCollector = new ContextCollector(this.app, () => this.settings);
 
 		this.registerView(
 			VIEW_TYPE_INKFLOW,
 			(leaf) =>
 				new InkflowSuggestionView(leaf, {
 					onInsert: (text) => this.insertSuggestion(text),
-					onRegenerate: () => this.regenerate(),
 					onToggle: (enabled) => this.setEnabled(enabled),
 					getEnabled: () => this.settings.enabled,
+					getShowInsertButton: () => this.settings.showInsertButton,
 				}),
 		);
 
@@ -64,20 +48,15 @@ export default class InkflowPlugin extends Plugin {
 			},
 		});
 
-		this.registerEvent(
-			this.app.workspace.on('editor-change', () => {
-				// Resuming typing cancels any in-flight request (spec §1): bump
-				// the generation so a pending response is discarded on arrival.
-				this.requestGeneration++;
-				this.idleDetector.notifyActivity();
-			}),
-		);
-
 		this.addSettingTab(new InkflowSettingTab(this.app, this));
+
+		if (this.settings.enabled) {
+			this.startGenerationLoop();
+		}
 	}
 
 	onunload() {
-		this.idleDetector?.stop();
+		this.stopGeneration();
 	}
 
 	async loadSettings() {
@@ -92,11 +71,6 @@ export default class InkflowPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	// Re-applies the idle interval when the idleSeconds setting changes.
-	applyIdleSeconds() {
-		this.idleDetector?.setIdleMs(this.settings.idleSeconds * 1000);
-	}
-
 	async activateView(): Promise<void> {
 		const { workspace } = this.app;
 		let leaf = workspace.getLeavesOfType(VIEW_TYPE_INKFLOW)[0];
@@ -106,10 +80,7 @@ export default class InkflowPlugin extends Plugin {
 				return;
 			}
 			leaf = rightLeaf;
-			await leaf.setViewState({
-				type: VIEW_TYPE_INKFLOW,
-				active: true,
-			});
+			await leaf.setViewState({ type: VIEW_TYPE_INKFLOW, active: true });
 		}
 		await workspace.revealLeaf(leaf);
 	}
@@ -133,64 +104,66 @@ export default class InkflowPlugin extends Plugin {
 		return view instanceof MarkdownView ? view : null;
 	}
 
-	private renderPanel(state: PanelState): void {
-		this.getView()?.render(state);
-	}
-
 	private setEnabled(enabled: boolean): void {
 		this.settings.enabled = enabled;
 		void this.saveSettings();
 		this.getView()?.setEnabled(enabled);
 		if (enabled) {
-			this.idleDetector.start();
+			this.getView()?.clearEntries();
+			this.startGenerationLoop();
 		} else {
-			this.idleDetector.stop();
+			this.stopGeneration();
 		}
 	}
 
-	private onIdle(): void {
-		// Only auto-generate when enabled and the panel is open, so we never
-		// issue background Ollama requests the user can't see.
-		if (!this.settings.enabled || !this.getView()) {
-			return;
-		}
-		void this.runSuggestion(++this.requestGeneration);
+	private startGenerationLoop(): void {
+		void this.generationCycle(++this.requestGeneration);
 	}
 
-	private regenerate(): void {
-		void this.runSuggestion(++this.requestGeneration);
+	private stopGeneration(): void {
+		if (this.generationTimer !== null) {
+			window.clearTimeout(this.generationTimer);
+			this.generationTimer = null;
+		}
+		this.requestGeneration++;
 	}
 
-	private async runSuggestion(generation: number): Promise<void> {
-		const view = this.getTargetMarkdownView();
-		const editor = view?.editor;
-		if (!editor) {
-			return;
-		}
+	private async generationCycle(generation: number): Promise<void> {
+		if (!this.settings.enabled) return;
 
-		const { prefix, frontmatter } = this.contextCollector.collect(
-			editor,
-			view.file,
-		);
-		this.renderPanel({ status: 'loading' });
+		const view = this.getView();
+		if (!view) return;
+
+		const markdownView = this.getTargetMarkdownView();
+		const editor = markdownView?.editor;
+		if (!editor) return;
+
+		const entryId = view.appendLoading(this.settings.maxEntries);
 
 		try {
+			const { prefix, frontmatter } = this.contextCollector.collect(
+				editor,
+				markdownView.file,
+			);
 			const suggestions = await this.ollamaClient.fetchSuggestions(
 				prefix,
 				frontmatter,
 			);
-			if (generation === this.requestGeneration) {
-				this.renderPanel({ status: 'done', suggestions });
-			}
+			if (generation !== this.requestGeneration) return;
+			view.resolveEntry(entryId, { suggestions });
 		} catch (error) {
-			if (generation !== this.requestGeneration) {
-				return;
-			}
-			this.renderPanel({
-				status: 'error',
-				error: this.toErrorMessage(error),
-			});
+			if (generation !== this.requestGeneration) return;
+			view.resolveEntry(entryId, { error: this.toErrorMessage(error) });
+			// Stop the loop on error; user must toggle off/on to retry.
+			return;
 		}
+
+		if (generation !== this.requestGeneration || !this.settings.enabled) return;
+
+		this.generationTimer = window.setTimeout(() => {
+			this.generationTimer = null;
+			void this.generationCycle(++this.requestGeneration);
+		}, this.settings.intervalSeconds * 1000);
 	}
 
 	private toErrorMessage(error: unknown): string {
