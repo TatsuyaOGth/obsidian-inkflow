@@ -19,6 +19,7 @@ export default tseslint.config(
 		languageOptions: {
 			globals: {
 				...globals.browser,
+				IS_DEV: 'readonly',
 			},
 			parserOptions: {
 				projectService: {
@@ -30,4 +31,11 @@ export default tseslint.config(
 		},
 	},
 	...obsidianmd.configs.recommended,
+	{
+		files: ['src/logger.ts'],
+		rules: {
+			'no-console': 'off',
+			'obsidianmd/rule-custom-message': 'off',
+		},
+	},
 );

@@ -1,4 +1,5 @@
 import { ItemView, ToggleComponent, WorkspaceLeaf } from 'obsidian';
+import { Logger } from './logger';
 import { SuggestionEntry, VIEW_TYPE_INKFLOW } from './types';
 
 export interface SuggestionPanelCallbacks {
@@ -19,7 +20,11 @@ export class InkflowSuggestionView extends ItemView {
 	private nextEntryId = 0;
 	private autoScroll = true;
 
-	constructor(leaf: WorkspaceLeaf, callbacks: SuggestionPanelCallbacks) {
+	constructor(
+		leaf: WorkspaceLeaf,
+		callbacks: SuggestionPanelCallbacks,
+		private logger: Logger,
+	) {
 		super(leaf);
 		this.callbacks = callbacks;
 	}

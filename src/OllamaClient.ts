@@ -1,4 +1,5 @@
 import { requestUrl } from 'obsidian';
+import { Logger } from './logger';
 import { GRANULARITY_PROMPTS, InkflowSettings } from './types';
 
 export type InkflowErrorKind = 'connection' | 'timeout' | 'parse';
@@ -19,7 +20,10 @@ export class InkflowError extends Error {
  * parses the JSON suggestions out of the response.
  */
 export class OllamaClient {
-	constructor(private getSettings: () => InkflowSettings) {}
+	constructor(
+		private getSettings: () => InkflowSettings,
+		private logger: Logger,
+	) {}
 
 	buildSystemPrompt(frontmatter: string | null, promptOverride: string | null): string {
 		const template = promptOverride ?? this.getSettings().systemPrompt;
@@ -58,16 +62,19 @@ export class OllamaClient {
 		const { ollamaUrl, modelName, timeoutMs, suggestionCount } =
 			this.getSettings();
 
-		const body = JSON.stringify({
+		const requestBody = {
 			model: modelName,
 			messages: [
 				{ role: 'system', content: this.buildSystemPrompt(frontmatter, promptOverride) },
 				{ role: 'user', content: this.buildUserPrompt(prefix) },
 			],
 			stream: false,
-		});
+		};
+		const body = JSON.stringify(requestBody);
 
 		const url = `${ollamaUrl.replace(/\/+$/, '')}/api/chat`;
+
+		this.logger.debug('fetch →', { url, body: requestBody });
 
 		let response;
 		try {
@@ -85,8 +92,11 @@ export class OllamaClient {
 			if (error instanceof InkflowError) {
 				throw error;
 			}
+			this.logger.error('connection error', error);
 			throw new InkflowError('connection', String(error));
 		}
+
+		this.logger.debug('fetch ←', { status: response.status, body: response.text });
 
 		if (response.status < 200 || response.status >= 300) {
 			throw new InkflowError(
@@ -123,6 +133,7 @@ export class OllamaClient {
 			return JSON.parse(content);
 		} catch {
 			// Salvage: some models wrap the JSON in prose. Try the first {...} block.
+			this.logger.warn('JSON parse: falling back to extraction');
 			const start = content.indexOf('{');
 			const end = content.lastIndexOf('}');
 			if (start !== -1 && end > start) {

@@ -12,6 +12,7 @@ export interface InkflowSettings {
 	enabled: boolean;
 	showInsertButton: boolean;
 	maxEntries: number;
+	debugMode: boolean;
 }
 
 // Default System Prompt, taken verbatim from the MVP specification (§4).
@@ -39,6 +40,7 @@ export const DEFAULT_SETTINGS: InkflowSettings = {
 	enabled: true,
 	showInsertButton: true,
 	maxEntries: 20,
+	debugMode: false,
 };
 
 export const VIEW_TYPE_INKFLOW = 'inkflow-suggestion-panel';
