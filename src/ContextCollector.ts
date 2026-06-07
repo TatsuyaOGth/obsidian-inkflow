@@ -4,6 +4,7 @@ import { InkflowSettings } from './types';
 export interface CollectedContext {
 	prefix: string;
 	frontmatter: string | null;
+	promptOverride: string | null;
 }
 
 /**
@@ -20,7 +21,11 @@ export class ContextCollector {
 		const cursor = editor.getCursor();
 		const before = editor.getRange({ line: 0, ch: 0 }, cursor);
 		const prefix = before.slice(-this.getSettings().contextLength);
-		return { prefix, frontmatter: this.formatFrontmatter(file) };
+		return {
+			prefix,
+			frontmatter: this.formatFrontmatter(file),
+			promptOverride: this.getPromptOverride(file),
+		};
 	}
 
 	private formatFrontmatter(file: TFile | null): string | null {
@@ -34,10 +39,17 @@ export class ContextCollector {
 		}
 
 		const lines = Object.entries(frontmatter)
-			.filter(([key]) => key !== 'position')
+			.filter(([key]) => key !== 'position' && key !== 'inkflow_prompt')
 			.map(([key, value]) => `${key}: ${formatValue(value)}`);
 
 		return lines.length > 0 ? lines.join('\n') : null;
+	}
+
+	private getPromptOverride(file: TFile | null): string | null {
+		if (!file) return null;
+		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+		const val: unknown = fm?.['inkflow_prompt'];
+		return typeof val === 'string' && val.trim() ? val.trim() : null;
 	}
 }
 
