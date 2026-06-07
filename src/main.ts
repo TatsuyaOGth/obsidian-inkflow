@@ -1,5 +1,6 @@
 import { MarkdownView, Notice, Plugin } from 'obsidian';
 import { ContextCollector } from './ContextCollector';
+import { Logger } from './logger';
 import { InkflowError, OllamaClient } from './OllamaClient';
 import { InkflowSettingTab } from './SettingsTab';
 import { InkflowSuggestionView } from './SuggestionPanel';
@@ -23,18 +24,29 @@ export default class InkflowPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
-		this.ollamaClient = new OllamaClient(() => this.settings);
-		this.contextCollector = new ContextCollector(this.app, () => this.settings);
+		this.ollamaClient = new OllamaClient(
+			() => this.settings,
+			new Logger('[Inkflow:OllamaClient]', () => this.settings.debugMode),
+		);
+		this.contextCollector = new ContextCollector(
+			this.app,
+			() => this.settings,
+			new Logger('[Inkflow:ContextCollector]', () => this.settings.debugMode),
+		);
 
 		this.registerView(
 			VIEW_TYPE_INKFLOW,
 			(leaf) =>
-				new InkflowSuggestionView(leaf, {
-					onInsert: (text) => this.insertSuggestion(text),
-					onToggle: (enabled) => this.setEnabled(enabled),
-					getEnabled: () => this.settings.enabled,
-					getShowInsertButton: () => this.settings.showInsertButton,
-				}),
+				new InkflowSuggestionView(
+					leaf,
+					{
+						onInsert: (text) => this.insertSuggestion(text),
+						onToggle: (enabled) => this.setEnabled(enabled),
+						getEnabled: () => this.settings.enabled,
+						getShowInsertButton: () => this.settings.showInsertButton,
+					},
+					new Logger('[Inkflow:SuggestionPanel]', () => this.settings.debugMode),
+				),
 		);
 
 		this.addRibbonIcon('pencil', 'Open suggestion panel', () => {
