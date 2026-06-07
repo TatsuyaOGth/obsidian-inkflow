@@ -22,8 +22,11 @@ export class OllamaClient {
 	constructor(private getSettings: () => InkflowSettings) {}
 
 	buildSystemPrompt(frontmatter: string | null, promptOverride: string | null): string {
-		if (promptOverride) return promptOverride;
-		const template = this.getSettings().systemPrompt;
+		const template = promptOverride ?? this.getSettings().systemPrompt;
+		return this.expandFrontmatter(template, frontmatter);
+	}
+
+	private expandFrontmatter(template: string, frontmatter: string | null): string {
 		if (frontmatter) {
 			return template.replace(/\{frontmatter\}/g, frontmatter);
 		}
