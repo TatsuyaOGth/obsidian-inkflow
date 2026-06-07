@@ -138,6 +138,18 @@ export class InkflowSettingTab extends PluginSettingTab {
 				textArea.inputEl.rows = 12;
 				textArea.inputEl.addClass('inkflow-system-prompt');
 			});
+
+		new Setting(containerEl)
+			.setName('Debug mode')
+			.setDesc('開発者コンソールに詳細なデバッグログを出力します。')
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.debugMode)
+					.onChange(async (value) => {
+						this.plugin.settings.debugMode = value;
+						await this.plugin.saveSettings();
+					}),
+			);
 	}
 }
 

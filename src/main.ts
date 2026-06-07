@@ -1,6 +1,7 @@
 import { MarkdownView, Notice, Plugin } from 'obsidian';
 import { ContextCollector } from './ContextCollector';
 import { IdleDetector } from './IdleDetector';
+import { Logger } from './logger';
 import { InkflowError, OllamaClient } from './OllamaClient';
 import { InkflowSettingTab } from './SettingsTab';
 import { InkflowSuggestionView } from './SuggestionPanel';
@@ -20,6 +21,7 @@ const ERROR_MESSAGES: Record<InkflowError['kind'], string> = {
 export default class InkflowPlugin extends Plugin {
 	settings!: InkflowSettings;
 
+	private logger!: Logger;
 	private ollamaClient!: OllamaClient;
 	private contextCollector!: ContextCollector;
 	private idleDetector!: IdleDetector;
@@ -28,10 +30,15 @@ export default class InkflowPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
-		this.ollamaClient = new OllamaClient(() => this.settings);
+		this.logger = new Logger('[Inkflow:Main]', () => this.settings.debugMode);
+		this.ollamaClient = new OllamaClient(
+			() => this.settings,
+			new Logger('[Inkflow:OllamaClient]', () => this.settings.debugMode),
+		);
 		this.contextCollector = new ContextCollector(
 			this.app,
 			() => this.settings,
+			new Logger('[Inkflow:ContextCollector]', () => this.settings.debugMode),
 		);
 		this.idleDetector = new IdleDetector(
 			this.settings.idleSeconds * 1000,
@@ -44,12 +51,16 @@ export default class InkflowPlugin extends Plugin {
 		this.registerView(
 			VIEW_TYPE_INKFLOW,
 			(leaf) =>
-				new InkflowSuggestionView(leaf, {
-					onInsert: (text) => this.insertSuggestion(text),
-					onRegenerate: () => this.regenerate(),
-					onToggle: (enabled) => this.setEnabled(enabled),
-					getEnabled: () => this.settings.enabled,
-				}),
+				new InkflowSuggestionView(
+					leaf,
+					{
+						onInsert: (text) => this.insertSuggestion(text),
+						onRegenerate: () => this.regenerate(),
+						onToggle: (enabled) => this.setEnabled(enabled),
+						getEnabled: () => this.settings.enabled,
+					},
+					new Logger('[Inkflow:SuggestionPanel]', () => this.settings.debugMode),
+				),
 		);
 
 		this.addRibbonIcon('pencil', 'Open suggestion panel', () => {

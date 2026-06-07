@@ -10,6 +10,7 @@ export interface InkflowSettings {
 	systemPrompt: string;
 	timeoutMs: number;
 	enabled: boolean;
+	debugMode: boolean;
 }
 
 // Default System Prompt, taken verbatim from the MVP specification (§4).
@@ -35,6 +36,7 @@ export const DEFAULT_SETTINGS: InkflowSettings = {
 	systemPrompt: DEFAULT_SYSTEM_PROMPT,
 	timeoutMs: 30000,
 	enabled: true,
+	debugMode: false,
 };
 
 export const VIEW_TYPE_INKFLOW = 'inkflow-suggestion-panel';

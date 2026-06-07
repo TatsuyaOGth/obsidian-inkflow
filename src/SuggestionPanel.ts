@@ -1,4 +1,5 @@
 import { ItemView, ToggleComponent, WorkspaceLeaf } from 'obsidian';
+import { Logger } from './logger';
 import { PanelState, VIEW_TYPE_INKFLOW } from './types';
 
 export interface SuggestionPanelCallbacks {
@@ -15,7 +16,11 @@ export class InkflowSuggestionView extends ItemView {
 	private regenerateButton!: HTMLButtonElement;
 	private state: PanelState = { status: 'idle' };
 
-	constructor(leaf: WorkspaceLeaf, callbacks: SuggestionPanelCallbacks) {
+	constructor(
+		leaf: WorkspaceLeaf,
+		callbacks: SuggestionPanelCallbacks,
+		private logger: Logger,
+	) {
 		super(leaf);
 		this.callbacks = callbacks;
 	}

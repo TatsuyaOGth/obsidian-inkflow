@@ -1,4 +1,5 @@
 import { App, Editor, TFile } from 'obsidian';
+import { Logger } from './logger';
 import { InkflowSettings } from './types';
 
 export interface CollectedContext {
@@ -14,13 +15,16 @@ export class ContextCollector {
 	constructor(
 		private app: App,
 		private getSettings: () => InkflowSettings,
+		private logger: Logger,
 	) {}
 
 	collect(editor: Editor, file: TFile | null): CollectedContext {
 		const cursor = editor.getCursor();
 		const before = editor.getRange({ line: 0, ch: 0 }, cursor);
 		const prefix = before.slice(-this.getSettings().contextLength);
-		return { prefix, frontmatter: this.formatFrontmatter(file) };
+		const frontmatter = this.formatFrontmatter(file);
+		this.logger.debug('collect', { prefixLength: prefix.length, hasFrontmatter: frontmatter !== null });
+		return { prefix, frontmatter };
 	}
 
 	private formatFrontmatter(file: TFile | null): string | null {
