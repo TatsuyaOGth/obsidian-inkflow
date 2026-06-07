@@ -57,18 +57,19 @@ export class OllamaClient {
 		const { ollamaUrl, modelName, timeoutMs, suggestionCount } =
 			this.getSettings();
 
-		const body = JSON.stringify({
+		const requestBody = {
 			model: modelName,
 			messages: [
 				{ role: 'system', content: this.buildSystemPrompt(frontmatter) },
 				{ role: 'user', content: this.buildUserPrompt(prefix) },
 			],
 			stream: false,
-		});
+		};
+		const body = JSON.stringify(requestBody);
 
 		const url = `${ollamaUrl.replace(/\/+$/, '')}/api/chat`;
 
-		this.logger.debug('fetch →', { url, model: modelName, body: JSON.parse(body) });
+		this.logger.debug('fetch →', { url, model: modelName, body: requestBody });
 
 		let response;
 		try {
