@@ -168,7 +168,7 @@ export default class InkflowPlugin extends Plugin {
 			return;
 		}
 
-		const { prefix, frontmatter } = this.contextCollector.collect(
+		const { prefix, frontmatter, promptOverride } = this.contextCollector.collect(
 			editor,
 			view.file,
 		);
@@ -178,6 +178,7 @@ export default class InkflowPlugin extends Plugin {
 			const suggestions = await this.ollamaClient.fetchSuggestions(
 				prefix,
 				frontmatter,
+				promptOverride,
 			);
 			if (generation === this.requestGeneration) {
 				this.renderPanel({ status: 'done', suggestions });

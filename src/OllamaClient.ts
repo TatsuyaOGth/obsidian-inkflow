@@ -21,7 +21,8 @@ export class InkflowError extends Error {
 export class OllamaClient {
 	constructor(private getSettings: () => InkflowSettings) {}
 
-	buildSystemPrompt(frontmatter: string | null): string {
+	buildSystemPrompt(frontmatter: string | null, promptOverride: string | null): string {
+		if (promptOverride) return promptOverride;
 		const template = this.getSettings().systemPrompt;
 		if (frontmatter) {
 			return template.replace(/\{frontmatter\}/g, frontmatter);
@@ -49,6 +50,7 @@ export class OllamaClient {
 	async fetchSuggestions(
 		prefix: string,
 		frontmatter: string | null,
+		promptOverride: string | null,
 	): Promise<string[]> {
 		const { ollamaUrl, modelName, timeoutMs, suggestionCount } =
 			this.getSettings();
@@ -56,7 +58,7 @@ export class OllamaClient {
 		const body = JSON.stringify({
 			model: modelName,
 			messages: [
-				{ role: 'system', content: this.buildSystemPrompt(frontmatter) },
+				{ role: 'system', content: this.buildSystemPrompt(frontmatter, promptOverride) },
 				{ role: 'user', content: this.buildUserPrompt(prefix) },
 			],
 			stream: false,
