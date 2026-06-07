@@ -48,7 +48,7 @@ export class ContextCollector {
 	private getPromptOverride(file: TFile | null): string | null {
 		if (!file) return null;
 		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-		const val = fm?.['inkflow_prompt'];
+		const val: unknown = fm?.['inkflow_prompt'];
 		return typeof val === 'string' && val.trim() ? val.trim() : null;
 	}
 }
