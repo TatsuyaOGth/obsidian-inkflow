@@ -1,16 +1,9 @@
 import { MarkdownView, Notice, Plugin } from 'obsidian';
 import { ContextCollector } from './ContextCollector';
-import { IdleDetector } from './IdleDetector';
-import { Logger } from './logger';
 import { InkflowError, OllamaClient } from './OllamaClient';
 import { InkflowSettingTab } from './SettingsTab';
 import { InkflowSuggestionView } from './SuggestionPanel';
-import {
-	DEFAULT_SETTINGS,
-	InkflowSettings,
-	PanelState,
-	VIEW_TYPE_INKFLOW,
-} from './types';
+import { DEFAULT_SETTINGS, InkflowSettings, VIEW_TYPE_INKFLOW } from './types';
 
 const ERROR_MESSAGES: Record<InkflowError['kind'], string> = {
 	connection: 'Ollamaに接続できません。起動しているか確認してください。',
@@ -21,46 +14,27 @@ const ERROR_MESSAGES: Record<InkflowError['kind'], string> = {
 export default class InkflowPlugin extends Plugin {
 	settings!: InkflowSettings;
 
-	private logger!: Logger;
 	private ollamaClient!: OllamaClient;
 	private contextCollector!: ContextCollector;
-	private idleDetector!: IdleDetector;
+	private generationTimer: number | null = null;
 	private requestGeneration = 0;
+	private isLoopActive = false;
 
 	async onload() {
 		await this.loadSettings();
 
-		this.logger = new Logger('[Inkflow:Main]', () => this.settings.debugMode);
-		this.ollamaClient = new OllamaClient(
-			() => this.settings,
-			new Logger('[Inkflow:OllamaClient]', () => this.settings.debugMode),
-		);
-		this.contextCollector = new ContextCollector(
-			this.app,
-			() => this.settings,
-			new Logger('[Inkflow:ContextCollector]', () => this.settings.debugMode),
-		);
-		this.idleDetector = new IdleDetector(
-			this.settings.idleSeconds * 1000,
-			() => this.onIdle(),
-		);
-		if (this.settings.enabled) {
-			this.idleDetector.start();
-		}
+		this.ollamaClient = new OllamaClient(() => this.settings);
+		this.contextCollector = new ContextCollector(this.app, () => this.settings);
 
 		this.registerView(
 			VIEW_TYPE_INKFLOW,
 			(leaf) =>
-				new InkflowSuggestionView(
-					leaf,
-					{
-						onInsert: (text) => this.insertSuggestion(text),
-						onRegenerate: () => this.regenerate(),
-						onToggle: (enabled) => this.setEnabled(enabled),
-						getEnabled: () => this.settings.enabled,
-					},
-					new Logger('[Inkflow:SuggestionPanel]', () => this.settings.debugMode),
-				),
+				new InkflowSuggestionView(leaf, {
+					onInsert: (text) => this.insertSuggestion(text),
+					onToggle: (enabled) => this.setEnabled(enabled),
+					getEnabled: () => this.settings.enabled,
+					getShowInsertButton: () => this.settings.showInsertButton,
+				}),
 		);
 
 		this.addRibbonIcon('pencil', 'Open suggestion panel', () => {
@@ -75,20 +49,25 @@ export default class InkflowPlugin extends Plugin {
 			},
 		});
 
+		this.addSettingTab(new InkflowSettingTab(this.app, this));
+
+		// Restart the loop whenever the workspace layout changes (covers the case
+		// where Obsidian restores the panel leaf from a previous session on startup).
 		this.registerEvent(
-			this.app.workspace.on('editor-change', () => {
-				// Resuming typing cancels any in-flight request (spec §1): bump
-				// the generation so a pending response is discarded on arrival.
-				this.requestGeneration++;
-				this.idleDetector.notifyActivity();
+			this.app.workspace.on('layout-change', () => {
+				if (this.settings.enabled && !this.isLoopActive && this.getView()) {
+					this.startGenerationLoop();
+				}
 			}),
 		);
 
-		this.addSettingTab(new InkflowSettingTab(this.app, this));
+		if (this.settings.enabled) {
+			this.startGenerationLoop();
+		}
 	}
 
 	onunload() {
-		this.idleDetector?.stop();
+		this.stopGeneration();
 	}
 
 	async loadSettings() {
@@ -103,11 +82,6 @@ export default class InkflowPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	// Re-applies the idle interval when the idleSeconds setting changes.
-	applyIdleSeconds() {
-		this.idleDetector?.setIdleMs(this.settings.idleSeconds * 1000);
-	}
-
 	async activateView(): Promise<void> {
 		const { workspace } = this.app;
 		let leaf = workspace.getLeavesOfType(VIEW_TYPE_INKFLOW)[0];
@@ -117,12 +91,13 @@ export default class InkflowPlugin extends Plugin {
 				return;
 			}
 			leaf = rightLeaf;
-			await leaf.setViewState({
-				type: VIEW_TYPE_INKFLOW,
-				active: true,
-			});
+			await leaf.setViewState({ type: VIEW_TYPE_INKFLOW, active: true });
 		}
 		await workspace.revealLeaf(leaf);
+		// Restart loop if enabled and the loop had stopped (e.g. panel was closed).
+		if (this.settings.enabled && !this.isLoopActive) {
+			this.startGenerationLoop();
+		}
 	}
 
 	private getView(): InkflowSuggestionView | null {
@@ -144,64 +119,90 @@ export default class InkflowPlugin extends Plugin {
 		return view instanceof MarkdownView ? view : null;
 	}
 
-	private renderPanel(state: PanelState): void {
-		this.getView()?.render(state);
-	}
-
 	private setEnabled(enabled: boolean): void {
+		if (this.settings.enabled === enabled) return;
 		this.settings.enabled = enabled;
 		void this.saveSettings();
-		this.getView()?.setEnabled(enabled);
+		const view = this.getView();
+		view?.setEnabled(enabled);
 		if (enabled) {
-			this.idleDetector.start();
+			view?.clearEntries();
+			this.startGenerationLoop();
 		} else {
-			this.idleDetector.stop();
+			this.stopGeneration();
 		}
 	}
 
-	private onIdle(): void {
-		// Only auto-generate when enabled and the panel is open, so we never
-		// issue background Ollama requests the user can't see.
-		if (!this.settings.enabled || !this.getView()) {
+	private startGenerationLoop(): void {
+		if (this.isLoopActive) return;
+		this.isLoopActive = true;
+		void this.generationCycle(++this.requestGeneration);
+	}
+
+	private stopGeneration(): void {
+		this.isLoopActive = false;
+		if (this.generationTimer !== null) {
+			window.clearTimeout(this.generationTimer);
+			this.generationTimer = null;
+		}
+		this.requestGeneration++;
+	}
+
+	private async generationCycle(generation: number): Promise<void> {
+		if (!this.settings.enabled || !this.isLoopActive) return;
+
+		const view = this.getView();
+		if (!view) {
+			// Panel was closed; stop and let activateView/layout-change restart.
+			this.isLoopActive = false;
 			return;
 		}
-		void this.runSuggestion(++this.requestGeneration);
-	}
 
-	private regenerate(): void {
-		void this.runSuggestion(++this.requestGeneration);
-	}
-
-	private async runSuggestion(generation: number): Promise<void> {
-		const view = this.getTargetMarkdownView();
-		const editor = view?.editor;
+		const markdownView = this.getTargetMarkdownView();
+		const editor = markdownView?.editor;
 		if (!editor) {
+			// No editor open; retry after interval without appending a loading entry.
+			this.generationTimer = window.setTimeout(() => {
+				this.generationTimer = null;
+				void this.generationCycle(generation);
+			}, this.settings.intervalSeconds * 1000);
 			return;
 		}
 
-		const { prefix, frontmatter } = this.contextCollector.collect(
-			editor,
-			view.file,
-		);
-		this.renderPanel({ status: 'loading' });
+		const entryId = view.appendLoading(this.settings.maxEntries);
 
 		try {
+			const { prefix, frontmatter, promptOverride } = this.contextCollector.collect(
+				editor,
+				markdownView.file,
+			);
 			const suggestions = await this.ollamaClient.fetchSuggestions(
 				prefix,
 				frontmatter,
+				promptOverride,
 			);
-			if (generation === this.requestGeneration) {
-				this.renderPanel({ status: 'done', suggestions });
-			}
-		} catch (error) {
 			if (generation !== this.requestGeneration) {
+				view.removeEntry(entryId);
 				return;
 			}
-			this.renderPanel({
-				status: 'error',
-				error: this.toErrorMessage(error),
-			});
+			view.resolveEntry(entryId, { suggestions });
+		} catch (error) {
+			if (generation !== this.requestGeneration) {
+				view.removeEntry(entryId);
+				return;
+			}
+			view.resolveEntry(entryId, { error: this.toErrorMessage(error) });
+			// Stop the loop on error; it will auto-restart on the next layout-change event.
+			this.isLoopActive = false;
+			return;
 		}
+
+		if (generation !== this.requestGeneration || !this.settings.enabled || !this.isLoopActive) return;
+
+		this.generationTimer = window.setTimeout(() => {
+			this.generationTimer = null;
+			void this.generationCycle(++this.requestGeneration);
+		}, this.settings.intervalSeconds * 1000);
 	}
 
 	private toErrorMessage(error: unknown): string {

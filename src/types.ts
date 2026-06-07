@@ -3,14 +3,15 @@ export type Granularity = 'sentence' | 'twoThreeSentences' | 'paragraph';
 export interface InkflowSettings {
 	ollamaUrl: string;
 	modelName: string;
-	idleSeconds: number;
+	intervalSeconds: number;
 	contextLength: number;
 	suggestionCount: number;
 	granularity: Granularity;
 	systemPrompt: string;
 	timeoutMs: number;
 	enabled: boolean;
-	debugMode: boolean;
+	showInsertButton: boolean;
+	maxEntries: number;
 }
 
 // Default System Prompt, taken verbatim from the MVP specification (§4).
@@ -29,14 +30,15 @@ export const DEFAULT_SYSTEM_PROMPT = `あなたは小説・エッセイ・ブロ
 export const DEFAULT_SETTINGS: InkflowSettings = {
 	ollamaUrl: 'http://localhost:11434',
 	modelName: 'llama3',
-	idleSeconds: 3,
+	intervalSeconds: 10,
 	contextLength: 2000,
 	suggestionCount: 3,
 	granularity: 'sentence',
 	systemPrompt: DEFAULT_SYSTEM_PROMPT,
 	timeoutMs: 30000,
 	enabled: true,
-	debugMode: false,
+	showInsertButton: true,
+	maxEntries: 20,
 };
 
 export const VIEW_TYPE_INKFLOW = 'inkflow-suggestion-panel';
@@ -55,10 +57,9 @@ export const GRANULARITY_LABELS: Record<Granularity, string> = {
 	paragraph: '一段落',
 };
 
-export type PanelStatus = 'idle' | 'loading' | 'done' | 'error';
-
-export interface PanelState {
-	status: PanelStatus;
+export interface SuggestionEntry {
+	id: number;
+	status: 'loading' | 'done' | 'error';
 	suggestions?: string[];
 	error?: string;
 }

@@ -1,5 +1,4 @@
 import { requestUrl } from 'obsidian';
-import { Logger } from './logger';
 import { GRANULARITY_PROMPTS, InkflowSettings } from './types';
 
 export type InkflowErrorKind = 'connection' | 'timeout' | 'parse';
@@ -20,13 +19,14 @@ export class InkflowError extends Error {
  * parses the JSON suggestions out of the response.
  */
 export class OllamaClient {
-	constructor(
-		private getSettings: () => InkflowSettings,
-		private logger: Logger,
-	) {}
+	constructor(private getSettings: () => InkflowSettings) {}
 
-	buildSystemPrompt(frontmatter: string | null): string {
-		const template = this.getSettings().systemPrompt;
+	buildSystemPrompt(frontmatter: string | null, promptOverride: string | null): string {
+		const template = promptOverride ?? this.getSettings().systemPrompt;
+		return this.expandFrontmatter(template, frontmatter);
+	}
+
+	private expandFrontmatter(template: string, frontmatter: string | null): string {
 		if (frontmatter) {
 			return template.replace(/\{frontmatter\}/g, frontmatter);
 		}
@@ -53,23 +53,21 @@ export class OllamaClient {
 	async fetchSuggestions(
 		prefix: string,
 		frontmatter: string | null,
+		promptOverride: string | null,
 	): Promise<string[]> {
 		const { ollamaUrl, modelName, timeoutMs, suggestionCount } =
 			this.getSettings();
 
-		const requestBody = {
+		const body = JSON.stringify({
 			model: modelName,
 			messages: [
-				{ role: 'system', content: this.buildSystemPrompt(frontmatter) },
+				{ role: 'system', content: this.buildSystemPrompt(frontmatter, promptOverride) },
 				{ role: 'user', content: this.buildUserPrompt(prefix) },
 			],
 			stream: false,
-		};
-		const body = JSON.stringify(requestBody);
+		});
 
 		const url = `${ollamaUrl.replace(/\/+$/, '')}/api/chat`;
-
-		this.logger.debug('fetch →', { url, model: modelName, body: requestBody });
 
 		let response;
 		try {
@@ -87,11 +85,8 @@ export class OllamaClient {
 			if (error instanceof InkflowError) {
 				throw error;
 			}
-			this.logger.error('connection error', error);
 			throw new InkflowError('connection', String(error));
 		}
-
-		this.logger.debug('fetch ←', { status: response.status });
 
 		if (response.status < 200 || response.status >= 300) {
 			throw new InkflowError(
@@ -128,7 +123,6 @@ export class OllamaClient {
 			return JSON.parse(content);
 		} catch {
 			// Salvage: some models wrap the JSON in prose. Try the first {...} block.
-			this.logger.warn('JSON parse: falling back to extraction');
 			const start = content.indexOf('{');
 			const end = content.lastIndexOf('}');
 			if (start !== -1 && end > start) {

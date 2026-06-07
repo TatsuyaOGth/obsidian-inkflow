@@ -1,10 +1,6 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
 import InkflowPlugin from './main';
-import {
-	DEFAULT_SETTINGS,
-	GRANULARITY_LABELS,
-	Granularity,
-} from './types';
+import { DEFAULT_SETTINGS, GRANULARITY_LABELS, Granularity } from './types';
 
 export class InkflowSettingTab extends PluginSettingTab {
 	plugin: InkflowPlugin;
@@ -48,19 +44,18 @@ export class InkflowSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName('Idle seconds')
-			.setDesc('Seconds of inactivity before suggestions are requested.')
+			.setName('Generation interval (seconds)')
+			.setDesc('Seconds to wait after the previous output before starting the next generation.')
 			.addText((text) =>
 				text
-					.setPlaceholder(String(DEFAULT_SETTINGS.idleSeconds))
-					.setValue(String(this.plugin.settings.idleSeconds))
+					.setPlaceholder(String(DEFAULT_SETTINGS.intervalSeconds))
+					.setValue(String(this.plugin.settings.intervalSeconds))
 					.onChange(async (value) => {
-						this.plugin.settings.idleSeconds = parsePositiveNumber(
+						this.plugin.settings.intervalSeconds = parsePositiveNumber(
 							value,
-							DEFAULT_SETTINGS.idleSeconds,
+							DEFAULT_SETTINGS.intervalSeconds,
 						);
 						await this.plugin.saveSettings();
-						this.plugin.applyIdleSeconds();
 					}),
 			);
 
@@ -124,6 +119,34 @@ export class InkflowSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName('Show insert button')
+			.setDesc('Display an "insert" button on each suggestion card.')
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.showInsertButton)
+					.onChange(async (value) => {
+						this.plugin.settings.showInsertButton = value;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName('Max suggestion batches')
+			.setDesc('Maximum number of generation results to keep in the panel (oldest are removed).')
+			.addText((text) =>
+				text
+					.setPlaceholder(String(DEFAULT_SETTINGS.maxEntries))
+					.setValue(String(this.plugin.settings.maxEntries))
+					.onChange(async (value) => {
+						this.plugin.settings.maxEntries = parsePositiveNumber(
+							value,
+							DEFAULT_SETTINGS.maxEntries,
+						);
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
 			.setName('System prompt')
 			.setDesc(
 				'Template for the system prompt. "{frontmatter}" is replaced with the note\'s frontmatter; if the note has none, the line containing it is removed.',
@@ -138,18 +161,6 @@ export class InkflowSettingTab extends PluginSettingTab {
 				textArea.inputEl.rows = 12;
 				textArea.inputEl.addClass('inkflow-system-prompt');
 			});
-
-		new Setting(containerEl)
-			.setName('Debug mode')
-			.setDesc('開発者コンソールに詳細なデバッグログを出力します。')
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.debugMode)
-					.onChange(async (value) => {
-						this.plugin.settings.debugMode = value;
-						await this.plugin.saveSettings();
-					}),
-			);
 	}
 }
 
