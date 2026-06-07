@@ -96,7 +96,7 @@ export class OllamaClient {
 			throw new InkflowError('connection', String(error));
 		}
 
-		this.logger.debug('fetch ←', { status: response.status });
+		this.logger.debug('fetch ←', { status: response.status, body: response.text });
 
 		if (response.status < 200 || response.status >= 300) {
 			throw new InkflowError(
