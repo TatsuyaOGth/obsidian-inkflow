@@ -63,7 +63,7 @@ export const GRANULARITY_LABELS: Record<Granularity, string> = {
 
 export interface SuggestionEntry {
 	id: number;
-	status: 'loading' | 'done' | 'error';
+	status: 'done' | 'error';
 	suggestions?: string[];
 	error?: string;
 }

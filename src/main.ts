@@ -43,6 +43,7 @@ export default class InkflowPlugin extends Plugin {
 					{
 						onInsert: (text) => this.insertSuggestion(text),
 						onToggle: (enabled) => this.setEnabled(enabled),
+						onGenerate: () => void this.triggerGeneration(),
 						getEnabled: () => this.settings.enabled,
 						getShowInsertButton: () => this.settings.showInsertButton,
 					},
@@ -249,7 +250,7 @@ export default class InkflowPlugin extends Plugin {
 		// Incremented synchronously (before any await) so triggerGeneration's
 		// isGenerating guard is race-free.
 		this.activeRequests++;
-		const entryId = view.appendLoading(this.settings.maxEntries);
+		view.setGenerating(true);
 
 		try {
 			const { prefix, frontmatter, promptOverride } = this.contextCollector.collect(
@@ -261,22 +262,23 @@ export default class InkflowPlugin extends Plugin {
 				frontmatter,
 				promptOverride,
 			);
-			if (generation !== this.requestGeneration) {
-				view.removeEntry(entryId);
-				return;
-			}
-			view.resolveEntry(entryId, { suggestions });
+			// Stale generation (cancelled mid-flight): drop the result.
+			if (generation !== this.requestGeneration) return;
+			view.appendResult({ suggestions }, this.settings.maxEntries);
 		} catch (error) {
-			if (generation !== this.requestGeneration) {
-				view.removeEntry(entryId);
-				return;
-			}
-			view.resolveEntry(entryId, { error: this.toErrorMessage(error) });
+			if (generation !== this.requestGeneration) return;
+			view.appendResult(
+				{ error: this.toErrorMessage(error) },
+				this.settings.maxEntries,
+			);
 			// Stop the loop on error; it will auto-restart on the next layout-change event.
 			this.isLoopActive = false;
 			return;
 		} finally {
 			this.activeRequests--;
+			// Re-query the view (it may have been closed mid-flight); the counter
+			// keeps the spinner on while an overlapping newer request runs.
+			this.getView()?.setGenerating(this.activeRequests > 0);
 		}
 
 		if (generation !== this.requestGeneration || !this.settings.enabled) return;

@@ -110,6 +110,42 @@
 	}
 }
 
+/* Constant-height status footer: switching between the idle icon and the
+   spinner never shifts layout, so the scroll position stays put. */
+.inkflow-footer {
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-4-2);
+	min-height: 32px;
+	border-top: 1px solid var(--background-modifier-border);
+	padding-top: var(--size-4-2);
+}
+
+.inkflow-status {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.inkflow-status-icon {
+	width: 16px;
+	height: 16px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.inkflow-status-icon .inkflow-spinner {
+	width: 14px;
+	height: 14px;
+	border-width: 2px;
+	margin: 0;
+}
+
 .inkflow-system-prompt {
 	width: 100%;
 	font-family: var(--font-monospace);
