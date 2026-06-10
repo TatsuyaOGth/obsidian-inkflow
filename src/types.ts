@@ -10,6 +10,7 @@ export interface InkflowSettings {
 	systemPrompt: string;
 	timeoutMs: number;
 	enabled: boolean;
+	autoGenerate: boolean;
 	showInsertButton: boolean;
 	maxEntries: number;
 	debugMode: boolean;
@@ -38,6 +39,7 @@ export const DEFAULT_SETTINGS: InkflowSettings = {
 	systemPrompt: DEFAULT_SYSTEM_PROMPT,
 	timeoutMs: 30000,
 	enabled: true,
+	autoGenerate: true,
 	showInsertButton: true,
 	maxEntries: 20,
 	debugMode: false,

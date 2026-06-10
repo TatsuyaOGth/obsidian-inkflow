@@ -60,6 +60,21 @@ export class InkflowSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName('Auto-generate')
+			.setDesc(
+				'一定間隔で自動的に提案を生成します。オフの場合はパネルのボタンまたはコマンドで手動生成します。',
+			)
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.autoGenerate)
+					.onChange(async (value) => {
+						this.plugin.settings.autoGenerate = value;
+						await this.plugin.saveSettings();
+						this.plugin.applyAutoGenerateSetting();
+					}),
+			);
+
+		new Setting(containerEl)
 			.setName('Context length')
 			.setDesc('Number of preceding characters to send as context.')
 			.addText((text) =>

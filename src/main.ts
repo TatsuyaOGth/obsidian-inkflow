@@ -20,6 +20,7 @@ export default class InkflowPlugin extends Plugin {
 	private generationTimer: number | null = null;
 	private requestGeneration = 0;
 	private isLoopActive = false;
+	private activeRequests = 0;
 
 	async onload() {
 		await this.loadSettings();
@@ -58,6 +59,15 @@ export default class InkflowPlugin extends Plugin {
 			name: 'Open suggestion panel',
 			callback: () => {
 				void this.activateView();
+			},
+		});
+
+		// No default hotkey; users can assign one in Obsidian's Hotkeys settings.
+		this.addCommand({
+			id: 'generate-now',
+			name: 'Generate suggestions now',
+			callback: () => {
+				void this.triggerGeneration();
 			},
 		});
 
@@ -145,8 +155,12 @@ export default class InkflowPlugin extends Plugin {
 		}
 	}
 
+	private get isGenerating(): boolean {
+		return this.activeRequests > 0;
+	}
+
 	private startGenerationLoop(): void {
-		if (this.isLoopActive) return;
+		if (!this.settings.autoGenerate || this.isLoopActive) return;
 		this.isLoopActive = true;
 		void this.generationCycle(++this.requestGeneration);
 	}
@@ -160,8 +174,55 @@ export default class InkflowPlugin extends Plugin {
 		this.requestGeneration++;
 	}
 
+	/** Applies a change to the autoGenerate setting, starting or stopping the loop. */
+	applyAutoGenerateSetting(): void {
+		if (this.settings.autoGenerate) {
+			if (!this.settings.enabled || !this.getView()) return;
+			if (this.isGenerating) {
+				// A manual generation is in flight; mark the loop active so the
+				// running cycle reschedules itself when it completes.
+				this.isLoopActive = true;
+				return;
+			}
+			this.startGenerationLoop();
+		} else {
+			this.stopLoopScheduling();
+		}
+	}
+
+	// Stops scheduling without bumping requestGeneration, so an in-flight
+	// generation may still finish and display its result.
+	private stopLoopScheduling(): void {
+		this.isLoopActive = false;
+		if (this.generationTimer !== null) {
+			window.clearTimeout(this.generationTimer);
+			this.generationTimer = null;
+		}
+	}
+
+	private async triggerGeneration(): Promise<void> {
+		if (!this.settings.enabled) {
+			new Notice('Inkflowが無効です。パネルのトグルで有効にしてください。');
+			return;
+		}
+		if (!this.getView()) {
+			await this.activateView();
+		}
+		// In auto mode activateView may have just started a cycle; the request
+		// counter is incremented synchronously, so this check prevents a double fire.
+		if (this.isGenerating) return;
+		// Cancel a pending auto-loop timer so the interval restarts after this run.
+		if (this.generationTimer !== null) {
+			window.clearTimeout(this.generationTimer);
+			this.generationTimer = null;
+		}
+		void this.generationCycle(++this.requestGeneration);
+	}
+
+	// Runs one generation. In auto mode (isLoopActive) it reschedules itself;
+	// a manual trigger runs it as a one-shot with isLoopActive === false.
 	private async generationCycle(generation: number): Promise<void> {
-		if (!this.settings.enabled || !this.isLoopActive) return;
+		if (!this.settings.enabled) return;
 
 		const view = this.getView();
 		if (!view) {
@@ -173,14 +234,21 @@ export default class InkflowPlugin extends Plugin {
 		const markdownView = this.getTargetMarkdownView();
 		const editor = markdownView?.editor;
 		if (!editor) {
-			// No editor open; retry after interval without appending a loading entry.
-			this.generationTimer = window.setTimeout(() => {
-				this.generationTimer = null;
-				void this.generationCycle(generation);
-			}, this.settings.intervalSeconds * 1000);
+			if (this.isLoopActive && this.settings.autoGenerate) {
+				// No editor open; retry after interval without appending a loading entry.
+				this.generationTimer = window.setTimeout(() => {
+					this.generationTimer = null;
+					void this.generationCycle(generation);
+				}, this.settings.intervalSeconds * 1000);
+			} else {
+				new Notice('対象のエディターが見つかりません。');
+			}
 			return;
 		}
 
+		// Incremented synchronously (before any await) so triggerGeneration's
+		// isGenerating guard is race-free.
+		this.activeRequests++;
 		const entryId = view.appendLoading(this.settings.maxEntries);
 
 		try {
@@ -207,9 +275,12 @@ export default class InkflowPlugin extends Plugin {
 			// Stop the loop on error; it will auto-restart on the next layout-change event.
 			this.isLoopActive = false;
 			return;
+		} finally {
+			this.activeRequests--;
 		}
 
-		if (generation !== this.requestGeneration || !this.settings.enabled || !this.isLoopActive) return;
+		if (generation !== this.requestGeneration || !this.settings.enabled) return;
+		if (!this.isLoopActive || !this.settings.autoGenerate) return;
 
 		this.generationTimer = window.setTimeout(() => {
 			this.generationTimer = null;
