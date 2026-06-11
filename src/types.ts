@@ -9,7 +9,7 @@ export interface InkflowSettings {
 	granularity: Granularity;
 	systemPrompt: string;
 	timeoutMs: number;
-	enabled: boolean;
+	autoGenerate: boolean;
 	showInsertButton: boolean;
 	maxEntries: number;
 	debugMode: boolean;
@@ -37,7 +37,7 @@ export const DEFAULT_SETTINGS: InkflowSettings = {
 	granularity: 'sentence',
 	systemPrompt: DEFAULT_SYSTEM_PROMPT,
 	timeoutMs: 30000,
-	enabled: true,
+	autoGenerate: true,
 	showInsertButton: true,
 	maxEntries: 20,
 	debugMode: false,
@@ -61,7 +61,7 @@ export const GRANULARITY_LABELS: Record<Granularity, string> = {
 
 export interface SuggestionEntry {
 	id: number;
-	status: 'loading' | 'done' | 'error';
+	status: 'done' | 'error';
 	suggestions?: string[];
 	error?: string;
 }

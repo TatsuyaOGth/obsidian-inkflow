@@ -45,7 +45,9 @@ export class InkflowSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Generation interval (seconds)')
-			.setDesc('Seconds to wait after the previous output before starting the next generation.')
+			.setDesc(
+				'Seconds to wait after the previous output before starting the next generation. オートモード（パネル左上のトグルがオン）の場合のみ有効です。',
+			)
 			.addText((text) =>
 				text
 					.setPlaceholder(String(DEFAULT_SETTINGS.intervalSeconds))

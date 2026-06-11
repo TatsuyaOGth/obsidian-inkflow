@@ -1,11 +1,12 @@
-import { ItemView, ToggleComponent, WorkspaceLeaf } from 'obsidian';
+import { ItemView, ToggleComponent, WorkspaceLeaf, setIcon } from 'obsidian';
 import { Logger } from './logger';
 import { SuggestionEntry, VIEW_TYPE_INKFLOW } from './types';
 
 export interface SuggestionPanelCallbacks {
 	onInsert: (text: string) => void;
-	onToggle: (enabled: boolean) => void;
-	getEnabled: () => boolean;
+	onToggleAuto: (value: boolean) => void;
+	onGenerate: () => void;
+	getAutoGenerate: () => boolean;
 	getShowInsertButton: () => boolean;
 }
 
@@ -14,11 +15,16 @@ export class InkflowSuggestionView extends ItemView {
 	private bodyEl!: HTMLElement;
 	private scrollToLatestBtn!: HTMLButtonElement;
 	private toggle!: ToggleComponent;
+	private statusIconEl!: HTMLElement;
+	private statusTextEl!: HTMLElement;
+	private generateBtn!: HTMLButtonElement;
 
 	private entries: SuggestionEntry[] = [];
 	private entryEls = new Map<number, HTMLElement>();
 	private nextEntryId = 0;
 	private autoScroll = true;
+	private generating = false;
+	private isAutoScrolling = false;
 
 	constructor(
 		leaf: WorkspaceLeaf,
@@ -49,13 +55,18 @@ export class InkflowSuggestionView extends ItemView {
 		const header = container.createDiv({ cls: 'inkflow-header' });
 		header.createEl('h4', { text: 'Writing suggest', cls: 'inkflow-title' });
 		const toggleWrapper = header.createDiv({ cls: 'inkflow-toggle' });
+		toggleWrapper.createSpan({ text: 'Auto', cls: 'inkflow-toggle-label' });
 		this.toggle = new ToggleComponent(toggleWrapper);
-		this.toggle.setValue(this.callbacks.getEnabled());
-		this.toggle.onChange((value) => this.callbacks.onToggle(value));
+		this.toggle.setValue(this.callbacks.getAutoGenerate());
+		this.toggle.onChange((value) => this.callbacks.onToggleAuto(value));
 
 		const bodyWrapper = container.createDiv({ cls: 'inkflow-body-wrapper' });
 		this.bodyEl = bodyWrapper.createDiv({ cls: 'inkflow-body' });
 		this.bodyEl.addEventListener('scroll', () => this.onBodyScroll());
+		// Covers a smooth scroll interrupted by the user before reaching the bottom.
+		this.bodyEl.addEventListener('scrollend', () => {
+			this.isAutoScrolling = false;
+		});
 
 		this.scrollToLatestBtn = bodyWrapper.createEl('button', {
 			text: '最新の提案へ',
@@ -66,6 +77,17 @@ export class InkflowSuggestionView extends ItemView {
 			this.scrollToLatestBtn.removeClass('is-visible');
 			this.scrollToBottom();
 		});
+
+		const footer = container.createDiv({ cls: 'inkflow-footer' });
+		const status = footer.createDiv({ cls: 'inkflow-status' });
+		this.statusIconEl = status.createDiv({ cls: 'inkflow-status-icon' });
+		this.statusTextEl = status.createSpan({ cls: 'inkflow-status-text' });
+		this.generateBtn = footer.createEl('button', {
+			text: '生成',
+			cls: 'inkflow-generate',
+		});
+		this.generateBtn.addEventListener('click', () => this.callbacks.onGenerate());
+		this.renderStatus();
 
 		if (this.entries.length === 0) {
 			this.showEmptyState();
@@ -81,17 +103,19 @@ export class InkflowSuggestionView extends ItemView {
 		this.entryEls.clear();
 	}
 
-	setEnabled(enabled: boolean): void {
-		this.toggle?.setValue(enabled);
-	}
-
 	/**
-	 * Appends a loading entry and returns its ID.
+	 * Appends a resolved (done or error) entry.
 	 * Trims oldest entries when the list exceeds maxEntries.
 	 */
-	appendLoading(maxEntries: number): number {
+	appendResult(
+		result: { suggestions: string[] } | { error: string },
+		maxEntries: number,
+	): void {
 		const id = this.nextEntryId++;
-		const entry: SuggestionEntry = { id, status: 'loading' };
+		const entry: SuggestionEntry =
+			'suggestions' in result
+				? { id, status: 'done', suggestions: result.suggestions }
+				: { id, status: 'error', error: result.error };
 		this.entries.push(entry);
 
 		this.trimTo(maxEntries);
@@ -105,58 +129,12 @@ export class InkflowSuggestionView extends ItemView {
 				this.scrollToBottom();
 			}
 		}
-		return id;
 	}
 
-	/** Updates a loading entry to done or error status. */
-	resolveEntry(id: number, result: { suggestions: string[] } | { error: string }): void {
-		const entry = this.entries.find((e) => e.id === id);
-		if (!entry) return;
-
-		if ('suggestions' in result) {
-			entry.status = 'done';
-			entry.suggestions = result.suggestions;
-		} else {
-			entry.status = 'error';
-			entry.error = result.error;
-		}
-
-		const el = this.entryEls.get(id);
-		if (el) {
-			el.empty();
-			this.renderEntryContent(entry, el);
-			if (this.autoScroll) {
-				this.scrollToBottom();
-			}
-		}
-	}
-
-	/** Removes a single entry (e.g. a stale loading entry cancelled mid-flight). */
-	removeEntry(id: number): void {
-		const idx = this.entries.findIndex((e) => e.id === id);
-		if (idx !== -1) this.entries.splice(idx, 1);
-		const el = this.entryEls.get(id);
-		if (el) {
-			el.remove();
-			this.entryEls.delete(id);
-			if (this.entries.length === 0) {
-				this.showEmptyState();
-			}
-		}
-	}
-
-	/** Clears all entries (called when re-enabling the plugin). */
-	clearEntries(): void {
-		this.entries = [];
-		this.entryEls.clear();
-		this.autoScroll = true;
-		if (this.bodyEl) {
-			this.bodyEl.empty();
-			this.showEmptyState();
-		}
-		if (this.scrollToLatestBtn) {
-			this.scrollToLatestBtn.removeClass('is-visible');
-		}
+	/** Switches the status footer between idle and generating. */
+	setGenerating(generating: boolean): void {
+		this.generating = generating;
+		this.renderStatus();
 	}
 
 	private trimTo(maxEntries: number): void {
@@ -172,7 +150,7 @@ export class InkflowSuggestionView extends ItemView {
 	private showEmptyState(): void {
 		this.bodyEl.createDiv({
 			cls: 'inkflow-empty',
-			text: '機能を有効にすると提案が表示されます。',
+			text: 'Autoをオンにするか、生成ボタンを押すと提案が表示されます。',
 		});
 	}
 
@@ -183,11 +161,25 @@ export class InkflowSuggestionView extends ItemView {
 		this.renderEntryContent(entry, el);
 	}
 
+	// The icon slot has a fixed size, so switching states never shifts layout
+	// or moves the scroll position.
+	private renderStatus(): void {
+		if (!this.statusIconEl || !this.statusTextEl) return;
+		this.statusIconEl.empty();
+		if (this.generating) {
+			this.statusIconEl.createDiv({ cls: 'inkflow-spinner' });
+			this.statusTextEl.setText('提案を考え中');
+		} else {
+			setIcon(this.statusIconEl, 'pen-line');
+			this.statusTextEl.setText('待機中');
+		}
+		if (this.generateBtn) {
+			this.generateBtn.disabled = this.generating;
+		}
+	}
+
 	private renderEntryContent(entry: SuggestionEntry, el: HTMLElement): void {
 		switch (entry.status) {
-			case 'loading':
-				el.createDiv({ cls: 'inkflow-spinner' });
-				break;
 			case 'done':
 				this.renderSuggestions(entry.suggestions ?? [], el);
 				break;
@@ -229,6 +221,14 @@ export class InkflowSuggestionView extends ItemView {
 		if (!this.bodyEl || !this.scrollToLatestBtn) return;
 		const { scrollTop, scrollHeight, clientHeight } = this.bodyEl;
 		const atBottom = scrollTop + clientHeight >= scrollHeight - 8;
+		if (this.isAutoScrolling) {
+			// A smooth scroll passes through non-bottom positions; don't treat
+			// them as the user scrolling away.
+			if (atBottom) {
+				this.isAutoScrolling = false;
+			}
+			return;
+		}
 		if (atBottom) {
 			this.autoScroll = true;
 			this.scrollToLatestBtn.removeClass('is-visible');
@@ -240,6 +240,7 @@ export class InkflowSuggestionView extends ItemView {
 
 	private scrollToBottom(): void {
 		if (!this.bodyEl) return;
-		this.bodyEl.scrollTop = this.bodyEl.scrollHeight;
+		this.isAutoScrolling = true;
+		this.bodyEl.scrollTo({ top: this.bodyEl.scrollHeight, behavior: 'smooth' });
 	}
 }
