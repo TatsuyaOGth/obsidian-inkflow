@@ -9,7 +9,6 @@ export interface InkflowSettings {
 	granularity: Granularity;
 	systemPrompt: string;
 	timeoutMs: number;
-	enabled: boolean;
 	autoGenerate: boolean;
 	showInsertButton: boolean;
 	maxEntries: number;
@@ -38,7 +37,6 @@ export const DEFAULT_SETTINGS: InkflowSettings = {
 	granularity: 'sentence',
 	systemPrompt: DEFAULT_SYSTEM_PROMPT,
 	timeoutMs: 30000,
-	enabled: true,
 	autoGenerate: true,
 	showInsertButton: true,
 	maxEntries: 20,

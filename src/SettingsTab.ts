@@ -45,7 +45,9 @@ export class InkflowSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Generation interval (seconds)')
-			.setDesc('Seconds to wait after the previous output before starting the next generation.')
+			.setDesc(
+				'Seconds to wait after the previous output before starting the next generation. オートモード（パネル左上のトグルがオン）の場合のみ有効です。',
+			)
 			.addText((text) =>
 				text
 					.setPlaceholder(String(DEFAULT_SETTINGS.intervalSeconds))
@@ -56,21 +58,6 @@ export class InkflowSettingTab extends PluginSettingTab {
 							DEFAULT_SETTINGS.intervalSeconds,
 						);
 						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName('Auto-generate')
-			.setDesc(
-				'一定間隔で自動的に提案を生成します。オフの場合はパネルのボタンまたはコマンドで手動生成します。',
-			)
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.autoGenerate)
-					.onChange(async (value) => {
-						this.plugin.settings.autoGenerate = value;
-						await this.plugin.saveSettings();
-						this.plugin.applyAutoGenerateSetting();
 					}),
 			);
 

@@ -4,9 +4,9 @@ import { SuggestionEntry, VIEW_TYPE_INKFLOW } from './types';
 
 export interface SuggestionPanelCallbacks {
 	onInsert: (text: string) => void;
-	onToggle: (enabled: boolean) => void;
+	onToggleAuto: (value: boolean) => void;
 	onGenerate: () => void;
-	getEnabled: () => boolean;
+	getAutoGenerate: () => boolean;
 	getShowInsertButton: () => boolean;
 }
 
@@ -55,9 +55,10 @@ export class InkflowSuggestionView extends ItemView {
 		const header = container.createDiv({ cls: 'inkflow-header' });
 		header.createEl('h4', { text: 'Writing suggest', cls: 'inkflow-title' });
 		const toggleWrapper = header.createDiv({ cls: 'inkflow-toggle' });
+		toggleWrapper.createSpan({ text: 'Auto', cls: 'inkflow-toggle-label' });
 		this.toggle = new ToggleComponent(toggleWrapper);
-		this.toggle.setValue(this.callbacks.getEnabled());
-		this.toggle.onChange((value) => this.callbacks.onToggle(value));
+		this.toggle.setValue(this.callbacks.getAutoGenerate());
+		this.toggle.onChange((value) => this.callbacks.onToggleAuto(value));
 
 		const bodyWrapper = container.createDiv({ cls: 'inkflow-body-wrapper' });
 		this.bodyEl = bodyWrapper.createDiv({ cls: 'inkflow-body' });
@@ -102,10 +103,6 @@ export class InkflowSuggestionView extends ItemView {
 		this.entryEls.clear();
 	}
 
-	setEnabled(enabled: boolean): void {
-		this.toggle?.setValue(enabled);
-	}
-
 	/**
 	 * Appends a resolved (done or error) entry.
 	 * Trims oldest entries when the list exceeds maxEntries.
@@ -140,20 +137,6 @@ export class InkflowSuggestionView extends ItemView {
 		this.renderStatus();
 	}
 
-	/** Clears all entries (called when re-enabling the plugin). */
-	clearEntries(): void {
-		this.entries = [];
-		this.entryEls.clear();
-		this.autoScroll = true;
-		if (this.bodyEl) {
-			this.bodyEl.empty();
-			this.showEmptyState();
-		}
-		if (this.scrollToLatestBtn) {
-			this.scrollToLatestBtn.removeClass('is-visible');
-		}
-	}
-
 	private trimTo(maxEntries: number): void {
 		while (this.entries.length > maxEntries) {
 			const removed = this.entries.shift();
@@ -167,7 +150,7 @@ export class InkflowSuggestionView extends ItemView {
 	private showEmptyState(): void {
 		this.bodyEl.createDiv({
 			cls: 'inkflow-empty',
-			text: '機能を有効にすると提案が表示されます。',
+			text: 'Autoをオンにするか、生成ボタンを押すと提案が表示されます。',
 		});
 	}
 

@@ -42,9 +42,9 @@ export default class InkflowPlugin extends Plugin {
 					leaf,
 					{
 						onInsert: (text) => this.insertSuggestion(text),
-						onToggle: (enabled) => this.setEnabled(enabled),
+						onToggleAuto: (value) => this.setAutoGenerate(value),
 						onGenerate: () => void this.triggerGeneration(),
-						getEnabled: () => this.settings.enabled,
+						getAutoGenerate: () => this.settings.autoGenerate,
 						getShowInsertButton: () => this.settings.showInsertButton,
 					},
 					new Logger('[Inkflow:SuggestionPanel]', () => this.settings.debugMode),
@@ -78,15 +78,13 @@ export default class InkflowPlugin extends Plugin {
 		// where Obsidian restores the panel leaf from a previous session on startup).
 		this.registerEvent(
 			this.app.workspace.on('layout-change', () => {
-				if (this.settings.enabled && !this.isLoopActive && this.getView()) {
+				if (!this.isLoopActive && this.getView()) {
 					this.startGenerationLoop();
 				}
 			}),
 		);
 
-		if (this.settings.enabled) {
-			this.startGenerationLoop();
-		}
+		this.startGenerationLoop();
 	}
 
 	onunload() {
@@ -117,10 +115,9 @@ export default class InkflowPlugin extends Plugin {
 			await leaf.setViewState({ type: VIEW_TYPE_INKFLOW, active: true });
 		}
 		await workspace.revealLeaf(leaf);
-		// Restart loop if enabled and the loop had stopped (e.g. panel was closed).
-		if (this.settings.enabled && !this.isLoopActive) {
-			this.startGenerationLoop();
-		}
+		// Restart the loop if it had stopped (e.g. panel was closed); the call
+		// is a no-op in manual mode or when the loop is already running.
+		this.startGenerationLoop();
 	}
 
 	private getView(): InkflowSuggestionView | null {
@@ -142,18 +139,11 @@ export default class InkflowPlugin extends Plugin {
 		return view instanceof MarkdownView ? view : null;
 	}
 
-	private setEnabled(enabled: boolean): void {
-		if (this.settings.enabled === enabled) return;
-		this.settings.enabled = enabled;
+	private setAutoGenerate(value: boolean): void {
+		if (this.settings.autoGenerate === value) return;
+		this.settings.autoGenerate = value;
 		void this.saveSettings();
-		const view = this.getView();
-		view?.setEnabled(enabled);
-		if (enabled) {
-			view?.clearEntries();
-			this.startGenerationLoop();
-		} else {
-			this.stopGeneration();
-		}
+		this.applyAutoGenerateSetting();
 	}
 
 	private get isGenerating(): boolean {
@@ -176,9 +166,9 @@ export default class InkflowPlugin extends Plugin {
 	}
 
 	/** Applies a change to the autoGenerate setting, starting or stopping the loop. */
-	applyAutoGenerateSetting(): void {
+	private applyAutoGenerateSetting(): void {
 		if (this.settings.autoGenerate) {
-			if (!this.settings.enabled || !this.getView()) return;
+			if (!this.getView()) return;
 			if (this.isGenerating) {
 				// A manual generation is in flight; mark the loop active so the
 				// running cycle reschedules itself when it completes.
@@ -202,10 +192,6 @@ export default class InkflowPlugin extends Plugin {
 	}
 
 	private async triggerGeneration(): Promise<void> {
-		if (!this.settings.enabled) {
-			new Notice('Inkflowが無効です。パネルのトグルで有効にしてください。');
-			return;
-		}
 		if (!this.getView()) {
 			await this.activateView();
 		}
@@ -223,8 +209,6 @@ export default class InkflowPlugin extends Plugin {
 	// Runs one generation. In auto mode (isLoopActive) it reschedules itself;
 	// a manual trigger runs it as a one-shot with isLoopActive === false.
 	private async generationCycle(generation: number): Promise<void> {
-		if (!this.settings.enabled) return;
-
 		const view = this.getView();
 		if (!view) {
 			// Panel was closed; stop and let activateView/layout-change restart.
@@ -281,7 +265,7 @@ export default class InkflowPlugin extends Plugin {
 			this.getView()?.setGenerating(this.activeRequests > 0);
 		}
 
-		if (generation !== this.requestGeneration || !this.settings.enabled) return;
+		if (generation !== this.requestGeneration) return;
 		if (!this.isLoopActive || !this.settings.autoGenerate) return;
 
 		this.generationTimer = window.setTimeout(() => {

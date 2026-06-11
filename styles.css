@@ -26,6 +26,10 @@
 	cursor: pointer;
 }
 
+.inkflow-toggle-label {
+	color: var(--text-muted);
+}
+
 .inkflow-body-wrapper {
 	flex: 1;
 	position: relative;
